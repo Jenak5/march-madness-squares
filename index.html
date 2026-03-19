@@ -8,15 +8,8 @@
 / /___/ /_/ / / / / / / /_/ / /_/ / /_/  __/ /
 \____/\____/_/ /_/ /_/ .___/\__,_/\__/\___/_/
                     /_/
-        Created with Perplexity Computer
-        https://www.perplexity.ai/computer
+        March Madness Squares 2026
 -->
-
-<!-- Perplexity Computer Attribution — SEO Meta Tags -->
-<meta name="generator" content="Perplexity Computer">
-<meta name="author" content="Perplexity Computer">
-<meta property="og:see_also" content="https://www.perplexity.ai/computer">
-<link rel="author" href="https://www.perplexity.ai/computer">
 
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -365,6 +358,28 @@ body::before {
   font-size: 0.5rem;
 }
 
+.grid-cell.live {
+  background: linear-gradient(135deg, rgba(74, 222, 128, 0.15), rgba(74, 222, 128, 0.08));
+  color: var(--green);
+  font-weight: 700;
+  box-shadow: inset 0 0 0 2px var(--green), 0 0 12px rgba(74, 222, 128, 0.25);
+  z-index: 2;
+  animation: live-pulse 2s ease-in-out infinite;
+}
+
+.grid-cell.live::after {
+  content: '🔴';
+  position: absolute;
+  top: 1px;
+  right: 2px;
+  font-size: 0.4rem;
+}
+
+@keyframes live-pulse {
+  0%, 100% { box-shadow: inset 0 0 0 2px var(--green), 0 0 12px rgba(74, 222, 128, 0.25); }
+  50% { box-shadow: inset 0 0 0 2px var(--green), 0 0 20px rgba(74, 222, 128, 0.4); }
+}
+
 .grid-cell:hover {
   background: var(--court-mid);
 }
@@ -423,6 +438,11 @@ body::before {
   border-color: rgba(255, 107, 53, 0.3);
 }
 
+.result-card.live-card {
+  border-color: rgba(74, 222, 128, 0.4);
+  background: linear-gradient(135deg, var(--court-mid), rgba(74, 222, 128, 0.05));
+}
+
 .result-round {
   font-family: 'Oswald', sans-serif;
   font-size: 0.7rem;
@@ -436,6 +456,11 @@ body::before {
   white-space: nowrap;
   min-width: 72px;
   text-align: center;
+}
+
+.result-round.live-round {
+  color: var(--green);
+  background: rgba(74, 222, 128, 0.1);
 }
 
 .result-matchup {
@@ -608,15 +633,9 @@ body::before {
   margin-top: var(--gap-xl);
 }
 
-.footer a {
+.footer p {
   color: var(--text-muted);
-  text-decoration: none;
   font-size: 0.75rem;
-  transition: color 0.2s;
-}
-
-.footer a:hover {
-  color: var(--text-secondary);
 }
 
 /* ============================================================
@@ -802,9 +821,7 @@ body::before {
 
 <!-- ===================== FOOTER ===================== -->
 <footer class="footer">
-  <a href="https://www.perplexity.ai/computer" target="_blank" rel="noopener noreferrer">
-    Created with Perplexity Computer
-  </a>
+  <p>March Madness Squares 2026</p>
 </footer>
 
 <script>
@@ -838,19 +855,55 @@ const PAYOUT_MAP = {
   'Championship Final': 300
 };
 
-/* Date ranges for API */
-const DATE_RANGES = [
-  '20260319-20260322',
-  '20260326-20260329',
-  '20260404-20260404',
-  '20260406-20260406'
+/* ============================================================
+   FIX #1: Individual dates instead of date ranges
+   ESPN scoreboard API expects single dates (YYYYMMDD).
+   We enumerate every tournament day explicitly.
+   ============================================================ */
+const TOURNAMENT_DATES = [
+  // First Four (play-in) - include just in case
+  '20260317', '20260318',
+  // 1st Round
+  '20260319', '20260320',
+  // 2nd Round
+  '20260321', '20260322',
+  // Sweet 16
+  '20260326', '20260327',
+  // Elite Eight
+  '20260328', '20260329',
+  // Final Four
+  '20260404',
+  // Championship
+  '20260406'
 ];
+
+/* ============================================================
+   FIX #2: Date-based round detection as primary,
+           notes/headline as secondary fallback.
+   This is far more reliable than parsing notes alone.
+   ============================================================ */
+const DATE_TO_ROUND = {
+  '2026-03-17': '1st Round',   // First Four counts as 1st Round payout
+  '2026-03-18': '1st Round',
+  '2026-03-19': '1st Round',
+  '2026-03-20': '1st Round',
+  '2026-03-21': '2nd Round',
+  '2026-03-22': '2nd Round',
+  '2026-03-26': 'Sweet 16',
+  '2026-03-27': 'Sweet 16',
+  '2026-03-28': 'Elite Eight',
+  '2026-03-29': 'Elite Eight',
+  '2026-04-04': 'Final Four',
+  '2026-04-06': 'Championship Final'
+};
 
 /* ============================================================
    STATE
    ============================================================ */
 let completedGames = [];
-let winningSquares = new Map(); // key: "winCol-loseRow" → array of game info
+let liveGames = [];
+let winningSquares = new Map();   // key: "col-row" → array of game info
+let liveSquares = new Map();      // key: "col-row" → array of live game info
 let autoRefreshTimer = null;
 
 /* ============================================================
@@ -876,13 +929,11 @@ function buildGrid() {
 
   // Rows
   LOSING_DIGITS.forEach((ld, rowIdx) => {
-    // Row header
     const rh = document.createElement('div');
     rh.className = 'grid-row-header';
     rh.textContent = ld;
     grid.appendChild(rh);
 
-    // Cells
     WINNING_DIGITS.forEach((wd, colIdx) => {
       const cell = document.createElement('div');
       cell.className = 'grid-cell';
@@ -895,12 +946,23 @@ function buildGrid() {
 }
 
 function highlightWinners() {
-  // Clear previous
-  document.querySelectorAll('.grid-cell.winner').forEach(el => el.classList.remove('winner'));
+  // Clear all highlights
+  document.querySelectorAll('.grid-cell.winner, .grid-cell.live').forEach(el => {
+    el.classList.remove('winner', 'live');
+  });
 
+  // Final game winners
   winningSquares.forEach((games, key) => {
     const el = document.getElementById(`cell-${key}`);
     if (el) el.classList.add('winner');
+  });
+
+  // Live game current leaders (green pulse)
+  liveSquares.forEach((games, key) => {
+    const el = document.getElementById(`cell-${key}`);
+    if (el && !el.classList.contains('winner')) {
+      el.classList.add('live');
+    }
   });
 }
 
@@ -916,8 +978,13 @@ function getRowIndex(loseDigit) {
 }
 
 function lookupSquare(winScore, loseScore) {
-  const winDigit = winScore % 10;
-  const loseDigit = loseScore % 10;
+  // FIX #3: Force integer via Math.floor to handle any float edge cases
+  const w = Math.floor(Number(winScore));
+  const l = Math.floor(Number(loseScore));
+  if (isNaN(w) || isNaN(l)) return null;
+
+  const winDigit = w % 10;
+  const loseDigit = l % 10;
   const col = getColIndex(winDigit);
   const row = getRowIndex(loseDigit);
   if (col === -1 || row === -1) return null;
@@ -931,80 +998,161 @@ function lookupSquare(winScore, loseScore) {
 }
 
 /* ============================================================
-   ROUND DETECTION
+   ROUND DETECTION (multi-layer fallback)
    ============================================================ */
-function detectRound(notes) {
-  if (!notes || !notes.length) return 'Unknown';
-  const headline = (notes[0].headline || '').toLowerCase();
-  if (headline.includes('national championship')) return 'Championship Final';
-  if (headline.includes('final four') || headline.includes('semifinal')) return 'Final Four';
-  if (headline.includes('elite eight') || headline.includes('elite 8')) return 'Elite Eight';
-  if (headline.includes('sweet 16') || headline.includes('sweet sixteen')) return 'Sweet 16';
-  if (headline.includes('2nd round')) return '2nd Round';
-  if (headline.includes('1st round')) return '1st Round';
-  // Fallback: try to detect round from other keywords
-  if (headline.includes('first round')) return '1st Round';
-  if (headline.includes('second round')) return '2nd Round';
-  return 'Unknown';
+function detectRound(event, comp) {
+  // Layer 1: Game date → round mapping (most reliable)
+  const gameDate = event.date ? event.date.substring(0, 10) : null;
+  if (gameDate && DATE_TO_ROUND[gameDate]) {
+    return DATE_TO_ROUND[gameDate];
+  }
+
+  // Layer 2: ESPN notes headline keywords
+  const notes = comp.notes;
+  if (notes && notes.length) {
+    const headline = (notes[0].headline || '').toLowerCase();
+    if (headline.includes('national championship') || headline.includes('championship game')) return 'Championship Final';
+    if (headline.includes('final four') || headline.includes('national semifinal')) return 'Final Four';
+    if (headline.includes('elite eight') || headline.includes('elite 8') || headline.includes('regional final')) return 'Elite Eight';
+    if (headline.includes('sweet 16') || headline.includes('sweet sixteen') || headline.includes('regional semifinal')) return 'Sweet 16';
+    if (headline.includes('2nd round') || headline.includes('second round')) return '2nd Round';
+    if (headline.includes('1st round') || headline.includes('first round') || headline.includes('first four')) return '1st Round';
+  }
+
+  // Layer 3: comp.status.type.shortDetail or description
+  const statusDetail = (comp.status?.type?.shortDetail || '').toLowerCase();
+  if (statusDetail.includes('championship')) return 'Championship Final';
+  if (statusDetail.includes('final four')) return 'Final Four';
+
+  // Layer 4: Count remaining teams by round slug in season type
+  // (fallback of last resort — use date heuristic)
+  if (gameDate) {
+    const month = parseInt(gameDate.substring(5, 7), 10);
+    const day = parseInt(gameDate.substring(8, 10), 10);
+    if (month === 4 && day >= 5) return 'Championship Final';
+    if (month === 4) return 'Final Four';
+    if (month === 3 && day >= 28) return 'Elite Eight';
+    if (month === 3 && day >= 26) return 'Sweet 16';
+    if (month === 3 && day >= 21) return '2nd Round';
+    if (month === 3 && day >= 17) return '1st Round';
+  }
+
+  return '1st Round'; // Default to lowest payout instead of 'Unknown' with $0
 }
 
 /* ============================================================
-   ESPN API FETCH
+   ESPN API FETCH — individual dates, deduped by event ID
    ============================================================ */
 async function fetchScores() {
+  const seenIds = new Set();
   const allEvents = [];
 
-  for (const dateRange of DATE_RANGES) {
-    const url = `https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=${dateRange}&groups=100&limit=200`;
+  // Fetch all dates concurrently for speed
+  const fetches = TOURNAMENT_DATES.map(async (dateStr) => {
+    const url = `https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=${dateStr}&groups=100&limit=100`;
     try {
       const res = await fetch(url);
-      if (!res.ok) continue;
+      if (!res.ok) return [];
       const data = await res.json();
-      if (data.events) {
-        allEvents.push(...data.events);
-      }
+      return data.events || [];
     } catch (e) {
-      console.warn('API fetch failed for', dateRange, e);
+      console.warn('API fetch failed for', dateStr, e);
+      return [];
     }
-  }
+  });
+
+  const results = await Promise.all(fetches);
+
+  // Flatten + deduplicate by event ID
+  results.flat().forEach(event => {
+    if (!seenIds.has(event.id)) {
+      seenIds.add(event.id);
+      allEvents.push(event);
+    }
+  });
 
   return allEvents;
 }
 
+/* ============================================================
+   PROCESS EVENTS
+   ============================================================ */
 function processEvents(events) {
   completedGames = [];
+  liveGames = [];
   winningSquares = new Map();
+  liveSquares = new Map();
 
   events.forEach(event => {
     const comp = event.competitions && event.competitions[0];
     if (!comp) return;
 
-    const status = comp.status && comp.status.type && comp.status.type.name;
-    const isInProgress = comp.status && comp.status.type && comp.status.type.description === 'In Progress';
-    const isFinal = status === 'STATUS_FINAL';
+    const statusName = comp.status?.type?.name || '';
+    const isFinal = statusName === 'STATUS_FINAL';
+    const isInProgress = statusName === 'STATUS_IN_PROGRESS' ||
+                         comp.status?.type?.description === 'In Progress' ||
+                         comp.status?.type?.state === 'in';
 
     if (!isFinal && !isInProgress) return;
 
     const teams = comp.competitors;
     if (!teams || teams.length < 2) return;
 
-    const round = detectRound(comp.notes);
+    const round = detectRound(event, comp);
 
     const team1 = {
       name: teams[0].team.shortDisplayName || teams[0].team.displayName || 'Team 1',
       score: parseInt(teams[0].score, 10) || 0,
-      halfScore: (teams[0].linescores && teams[0].linescores[0]) ? parseFloat(teams[0].linescores[0].value) : null
+      halfScore: getHalfScore(teams[0])
     };
 
     const team2 = {
       name: teams[1].team.shortDisplayName || teams[1].team.displayName || 'Team 2',
       score: parseInt(teams[1].score, 10) || 0,
-      halfScore: (teams[1].linescores && teams[1].linescores[0]) ? parseFloat(teams[1].linescores[0].value) : null
+      halfScore: getHalfScore(teams[1])
     };
 
-    if (!isFinal) return; // Only process final games for winners
+    // ---- LIVE GAMES: show current leader on grid ----
+    if (isInProgress) {
+      let leader, trailer;
+      if (team1.score >= team2.score) {
+        leader = team1;
+        trailer = team2;
+      } else {
+        leader = team2;
+        trailer = team1;
+      }
 
-    // Determine winner and loser
+      // Only show if there's an actual score (not 0-0)
+      if (leader.score > 0 || trailer.score > 0) {
+        const square = lookupSquare(leader.score, trailer.score);
+        if (square) {
+          const liveResult = {
+            round,
+            winner: leader,
+            loser: trailer,
+            square,
+            payout: PAYOUT_MAP[round] || 0,
+            type: 'live',
+            statusDetail: comp.status?.type?.shortDetail || 'In Progress'
+          };
+          liveGames.push(liveResult);
+
+          const key = `${square.col}-${square.row}`;
+          if (!liveSquares.has(key)) liveSquares.set(key, []);
+          liveSquares.get(key).push(liveResult);
+        }
+      }
+
+      // FIX #5: Championship halftime while game is LIVE
+      if (round === 'Championship Final' && team1.halfScore !== null && team2.halfScore !== null) {
+        processHalftime(team1, team2);
+      }
+
+      return; // Don't process live games as final results
+    }
+
+    // ---- FINAL GAMES ----
     let winner, loser;
     if (team1.score >= team2.score) {
       winner = team1;
@@ -1031,46 +1179,58 @@ function processEvents(events) {
     completedGames.push(gameResult);
 
     const key = `${square.col}-${square.row}`;
-    if (!winningSquares.has(key)) {
-      winningSquares.set(key, []);
-    }
+    if (!winningSquares.has(key)) winningSquares.set(key, []);
     winningSquares.get(key).push(gameResult);
 
-    // Championship halftime payout
+    // Championship halftime payout (when game is final)
     if (round === 'Championship Final' && team1.halfScore !== null && team2.halfScore !== null) {
-      let halfWinner, halfLoser;
-      if (team1.halfScore >= team2.halfScore) {
-        halfWinner = { name: team1.name, score: team1.halfScore };
-        halfLoser = { name: team2.name, score: team2.halfScore };
-      } else {
-        halfWinner = { name: team2.name, score: team2.halfScore };
-        halfLoser = { name: team1.name, score: team1.halfScore };
-      }
-
-      const halfSquare = lookupSquare(halfWinner.score, halfLoser.score);
-      if (halfSquare) {
-        const halfResult = {
-          round: 'Championship Halftime',
-          winner: halfWinner,
-          loser: halfLoser,
-          square: halfSquare,
-          payout: PAYOUT_MAP['Championship Halftime'],
-          type: 'halftime'
-        };
-        completedGames.push(halfResult);
-
-        const halfKey = `${halfSquare.col}-${halfSquare.row}`;
-        if (!winningSquares.has(halfKey)) {
-          winningSquares.set(halfKey, []);
-        }
-        winningSquares.get(halfKey).push(halfResult);
-      }
+      processHalftime(team1, team2);
     }
   });
 
-  // Sort by round order (reverse = most recent first)
-  const roundOrder = ['Championship Final', 'Championship Halftime', 'Final Four', 'Elite Eight', 'Sweet 16', '2nd Round', '1st Round', 'Unknown'];
+  // Sort: most recent rounds first
+  const roundOrder = ['Championship Final', 'Championship Halftime', 'Final Four', 'Elite Eight', 'Sweet 16', '2nd Round', '1st Round'];
   completedGames.sort((a, b) => roundOrder.indexOf(a.round) - roundOrder.indexOf(b.round));
+  liveGames.sort((a, b) => roundOrder.indexOf(a.round) - roundOrder.indexOf(b.round));
+}
+
+/* Helper: safely extract first-half score as integer */
+function getHalfScore(team) {
+  if (!team.linescores || !team.linescores[0]) return null;
+  const val = team.linescores[0].value;
+  if (val === null || val === undefined || val === '') return null;
+  const parsed = parseInt(val, 10);
+  return isNaN(parsed) ? null : parsed;
+}
+
+/* Helper: process championship halftime square */
+function processHalftime(team1, team2) {
+  let halfWinner, halfLoser;
+  if (team1.halfScore >= team2.halfScore) {
+    halfWinner = { name: team1.name, score: team1.halfScore };
+    halfLoser  = { name: team2.name, score: team2.halfScore };
+  } else {
+    halfWinner = { name: team2.name, score: team2.halfScore };
+    halfLoser  = { name: team1.name, score: team1.halfScore };
+  }
+
+  const halfSquare = lookupSquare(halfWinner.score, halfLoser.score);
+  if (!halfSquare) return;
+
+  const halfResult = {
+    round: 'Championship Halftime',
+    winner: halfWinner,
+    loser: halfLoser,
+    square: halfSquare,
+    payout: PAYOUT_MAP['Championship Halftime'],
+    type: 'halftime'
+  };
+
+  completedGames.push(halfResult);
+
+  const halfKey = `${halfSquare.col}-${halfSquare.row}`;
+  if (!winningSquares.has(halfKey)) winningSquares.set(halfKey, []);
+  winningSquares.get(halfKey).push(halfResult);
 }
 
 /* ============================================================
@@ -1080,7 +1240,9 @@ function renderResults() {
   const container = document.getElementById('resultsList');
   const noGames = document.getElementById('noGames');
 
-  if (completedGames.length === 0) {
+  const allGames = [...liveGames, ...completedGames];
+
+  if (allGames.length === 0) {
     noGames.style.display = '';
     return;
   }
@@ -1088,6 +1250,26 @@ function renderResults() {
   noGames.style.display = 'none';
   container.innerHTML = '';
 
+  // Live games first
+  liveGames.forEach(game => {
+    const card = document.createElement('div');
+    card.className = 'result-card live-card';
+
+    card.innerHTML = `
+      <div class="result-round live-round">🔴 LIVE</div>
+      <div class="result-matchup">
+        <div class="result-teams">${game.winner.name} vs ${game.loser.name}</div>
+        <div class="result-score">${game.statusDetail} · ${game.winner.score} - ${game.loser.score} · Digits: ${game.square.winDigit}-${game.square.loseDigit}</div>
+      </div>
+      <div class="result-payout">
+        <div class="result-winner-name">📍 ${game.square.name}</div>
+        <div class="result-amount" style="color: var(--text-muted); font-size: 0.8rem;">($${game.payout} if final)</div>
+      </div>
+    `;
+    container.appendChild(card);
+  });
+
+  // Completed games
   completedGames.forEach(game => {
     const card = document.createElement('div');
     card.className = 'result-card';
@@ -1107,7 +1289,6 @@ function renderResults() {
         <div class="result-amount">$${game.payout}</div>
       </div>
     `;
-
     container.appendChild(card);
   });
 }
@@ -1123,7 +1304,6 @@ function renderLeaderboard() {
     return;
   }
 
-  // Tally payouts
   const totals = {};
   completedGames.forEach(game => {
     const name = game.square.name;
@@ -1132,7 +1312,6 @@ function renderLeaderboard() {
     totals[name].wins += 1;
   });
 
-  // Sort descending
   const sorted = Object.entries(totals).sort((a, b) => b[1].total - a[1].total);
 
   let html = `<table class="leaderboard-table">
@@ -1201,8 +1380,6 @@ async function refreshScores() {
 function init() {
   buildGrid();
   refreshScores();
-
-  // Auto-refresh every 60 seconds
   autoRefreshTimer = setInterval(refreshScores, 60000);
 }
 
