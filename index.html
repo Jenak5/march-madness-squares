@@ -1043,20 +1043,45 @@ function detectRound(event, comp) {
 /* ============================================================
    ESPN API FETCH — individual dates, deduped by event ID
    ============================================================ */
+/* Try fetching a URL directly, then fall back to CORS proxies */
+async function corsFetch(url) {
+  // Attempt 1: Direct (works on GitHub Pages, most deployed origins)
+  try {
+    const res = await fetch(url);
+    if (res.ok) return res;
+  } catch (_) { /* CORS or network block — try proxies */ }
+
+  // Attempt 2: corsproxy.io
+  try {
+    const res = await fetch(`https://corsproxy.io/?${encodeURIComponent(url)}`);
+    if (res.ok) return res;
+  } catch (_) { /* proxy down — try next */ }
+
+  // Attempt 3: allorigins (returns wrapped JSON)
+  try {
+    const res = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`);
+    if (res.ok) return res;
+  } catch (_) { /* all proxies failed */ }
+
+  return null;
+}
+
 async function fetchScores() {
   const seenIds = new Set();
   const allEvents = [];
+  let failCount = 0;
 
   // Fetch all dates concurrently for speed
   const fetches = TOURNAMENT_DATES.map(async (dateStr) => {
     const url = `https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=${dateStr}&groups=100&limit=100`;
     try {
-      const res = await fetch(url);
-      if (!res.ok) return [];
+      const res = await corsFetch(url);
+      if (!res) { failCount++; return []; }
       const data = await res.json();
       return data.events || [];
     } catch (e) {
       console.warn('API fetch failed for', dateStr, e);
+      failCount++;
       return [];
     }
   });
@@ -1070,6 +1095,21 @@ async function fetchScores() {
       allEvents.push(event);
     }
   });
+
+  // Show warning if all fetches failed (sandbox / total network block)
+  if (failCount === TOURNAMENT_DATES.length && allEvents.length === 0) {
+    console.error('All ESPN API calls failed. If viewing in a preview/sandbox, deploy to GitHub Pages for live scores.');
+    const noGames = document.getElementById('noGames');
+    if (noGames) {
+      noGames.innerHTML = `
+        <div class="icon">⚠️</div>
+        <h3>Can't reach ESPN scores API</h3>
+        <p>This usually means you're viewing in a sandbox or preview.<br>
+        Deploy to <strong>GitHub Pages</strong> and scores will load automatically.</p>
+      `;
+      noGames.style.display = '';
+    }
+  }
 
   return allEvents;
 }
