@@ -997,13 +997,7 @@ function lookupSquare(winScore, loseScore) {
    ROUND DETECTION (multi-layer fallback)
    ============================================================ */
 function detectRound(event, comp) {
-  // Layer 1: Game date → round mapping (most reliable)
-  const gameDate = event.date ? event.date.substring(0, 10) : null;
-  if (gameDate && DATE_TO_ROUND[gameDate]) {
-    return DATE_TO_ROUND[gameDate];
-  }
-
-  // Layer 2: ESPN notes headline keywords
+  // Layer 1: ESPN notes headline keywords (most accurate — ESPN knows the round)
   const notes = comp.notes;
   if (notes && notes.length) {
     const headline = (notes[0].headline || '').toLowerCase();
@@ -1011,17 +1005,22 @@ function detectRound(event, comp) {
     if (headline.includes('final four') || headline.includes('national semifinal')) return 'Final Four';
     if (headline.includes('elite eight') || headline.includes('elite 8') || headline.includes('regional final')) return 'Elite Eight';
     if (headline.includes('sweet 16') || headline.includes('sweet sixteen') || headline.includes('regional semifinal')) return 'Sweet 16';
-    if (headline.includes('2nd round') || headline.includes('second round')) return '2nd Round';
-    if (headline.includes('1st round') || headline.includes('first round') || headline.includes('first four')) return '1st Round';
+    if (headline.includes('2nd round') || headline.includes('second round') || headline.includes('round of 32')) return '2nd Round';
+    if (headline.includes('1st round') || headline.includes('first round') || headline.includes('round of 64') || headline.includes('first four')) return '1st Round';
   }
 
-  // Layer 3: comp.status.type.shortDetail or description
+  // Layer 2: comp.status.type.shortDetail or description
   const statusDetail = (comp.status?.type?.shortDetail || '').toLowerCase();
   if (statusDetail.includes('championship')) return 'Championship Final';
   if (statusDetail.includes('final four')) return 'Final Four';
 
-  // Layer 4: Count remaining teams by round slug in season type
-  // (fallback of last resort — use date heuristic)
+  // Layer 3: Game date → round mapping (fallback when ESPN doesn't label the round)
+  const gameDate = event.date ? event.date.substring(0, 10) : null;
+  if (gameDate && DATE_TO_ROUND[gameDate]) {
+    return DATE_TO_ROUND[gameDate];
+  }
+
+  // Layer 4: Month/day heuristic (last resort)
   if (gameDate) {
     const month = parseInt(gameDate.substring(5, 7), 10);
     const day = parseInt(gameDate.substring(8, 10), 10);
